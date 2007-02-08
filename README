@@ -1,0 +1,111 @@
+skd - a lightweight socket daemon
+=================================
+
+skd is a small daemon which binds to a udp, tcp or unix-domain socket, waits
+for connections and runs a specified program to handle them. It is ideal as a
+secure, efficient replacement for traditional inetd as well as being an
+easy-to-use tool for non-privileged users wanting to run their own network
+services.
+
+Datagram and stream sockets are available in both the internet and unix
+namespaces, each with the expected inetd behaviour. In the internet domain,
+IPv6 is supported in addition to IPv4.
+
+skd also supports connection limits, verbose logging of connections, dropping
+of privileges, forking into the background with a pidfile and redirecting
+stderr to syslog or a file. Some of these facilities (such as forking into the
+background, privilege dropping and logging) are also useful for standalone,
+non-network services and can be used without binding any socket.
+
+
+Building and installing
+-----------------------
+
+Unpack the source tar.gz file and change to the unpacked directory.
+
+Run 'make', then 'make install' to install in /bin. Alternatively, you can set
+DESTDIR and/or BINDIR to install in a different location, or strip and copy
+the compiled skd binary into the correct place manually.
+
+skd was developed on GNU/Linux and FreeBSD, but should be reasonably portable.
+In particular, it is expected to compile on most modern unix platforms. Please
+report any problems or bugs to Chris Webb <chris@arachsys.com>.
+
+
+Usage
+-----
+
+Usage: skd [OPTIONS] PROG [ARGS]...
+Options:
+  -i [INTERFACE:]PORT   bind a listening socket in the internet namespace
+  -l PATH, -x PATH      bind a listening socket in the local unix namespace
+  -s                    create a stream socket (default socket style)
+  -d                    create a datagram socket instead of a stream socket
+  -t [INTERFACE:]PORT   create a TCP socket: equivalent to -s -i
+  -u [INTERFACE:]PORT   create a UDP socket: equivalent to -d -i
+  -b BACKLOG            set the listen backlog for a stream socket
+  -c MAXCLIENTS         set the maximum number of concurrent connections
+                          accepted by a stream socket (default is unlimited)
+  -n                    set TCP_NODELAY to disable Nagle's algorithm for TCP
+                          stream connections
+  -v                    report information about every connection accepted
+                          or initial datagram received to stderr or the log
+  -B                    fork, establish new session id, redirect stdin and
+                          stdout to/from /dev/null if they are attached to a
+                          terminal, and run as a daemon in the background
+  -L TAG[:FAC.PRI]      start a logger subprocess, redirecting stderr to the
+                          system log with tag TAG, facility FAC and priority
+                          PRI (defaulting to daemon.notice if unspecified)
+  -L >LOGFILE           redirect stderr to create and write to LOGFILE
+  -L >>LOGFILE          redirect stderr to append to LOGFILE
+  -P PIDFILE            write pid to PIDFILE (after forking if used with -B)
+  -U                    after binding the socket, drop privileges to those
+                          specified by $UID and $GID, and if $ROOT is set,
+                          chroot into that directory
+
+When a stream socket is specified, listen on it and accept all incoming
+connections, executing the given program in a child process with stdin and
+stdout attached to the connection socket. Do not wait for the child to exit
+before accepting another connection on the listening socket.
+
+When a datagram socket is specified, wait for an initial datagram to arrive
+before launching the given program with stdin and stdout attached to the
+listening socket. Until this program exits, don't attempt to check for more
+datagrams or spawn another child.
+
+If none of -i, -l, -u is used, no socket is bound and the given program is
+executed immediately, after any background, logging, pidfile and privilege
+dropping actions have been completed. This allows use of these facilities
+for standalone and non-network services.
+
+
+Examples
+--------
+
+A unix domain echo server running in the foreground, reporting connections to
+stderr:
+
+  skd -vl /dev/cat.sock cat
+
+An motd server running in the background with a pidfile /var/run/motd.pid,
+reporting connections to syslog with tag 'testsrv', facility 'daemon' and
+priority 'info':
+
+  skd -vt 3000 -BP /var/run/motd.pid -L testsrv:daemon.info \
+    cat /etc/motd
+
+Uwe Ohse's uscheduled running in the background, logging errors from stderr to
+syslog:
+
+  skd -BL uschedule:daemon.notice -- uscheduled -d /var/lib/uschedule
+
+The last example demonstrates how skd can be useful as a daemontools
+replacement in a more standard unix environment. I use it to daemonise
+uschedule, dnscache and tinydns with logs sent to syslog.
+
+
+Copying
+-------
+
+skd was written by Chris Webb <chris@arachsys.com> and is distributed as Free
+Software under the terms of the MIT license in COPYING.

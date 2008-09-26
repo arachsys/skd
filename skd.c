@@ -113,10 +113,13 @@ int startlogger(char *spec) {
     return STDERR_FILENO;
 
   if (spec[0] == '>') {
-    if ((++spec)[0] == '>')
-      logpipe[1] = open(++spec, O_WRONLY | O_CREAT | O_APPEND, 0666);
-    else
+    if (spec[1] == '>') {
+      for (spec += 2; *spec == '\t' || *spec == ' '; spec++);
+      logpipe[1] = open(spec, O_WRONLY | O_CREAT | O_APPEND, 0666);
+    } else {
+      for (spec += 1; *spec == '\t' || *spec == ' '; spec++);
       logpipe[1] = open(spec, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    }
     if (logpipe[1] < 0)
       error(1, errno, "open %s", spec);
     return logpipe[1];

@@ -328,7 +328,7 @@ void acceptloop(int sock, char **cmdv, int verbose, int maxchildren,
 
 void recvloop(int sock, char **cmdv, int verbose) {
   char froms[64];
-  int pid;
+  int flags, pid;
   sigset_t mask_child, mask_restore;
   socklen_t fromaddrsize;
   struct sockaddr_storage fromaddr;
@@ -341,6 +341,8 @@ void recvloop(int sock, char **cmdv, int verbose) {
       sigsuspend(&mask_restore);
     sigprocmask(SIG_SETMASK, &mask_restore, NULL);
     fromaddrsize = sizeof(fromaddr);
+    flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
     if (recvfrom(sock, NULL, 0, MSG_PEEK, (struct sockaddr *) &fromaddr,
                  &fromaddrsize) >= 0) {
       if (verbose)
@@ -377,7 +379,7 @@ void recvloop(int sock, char **cmdv, int verbose) {
           children++;
       }
       sigprocmask(SIG_SETMASK, &mask_restore, NULL);
-    } else
+    } else if (errno != EAGAIN && errno != EINTR)
       fprintf(stderr, "Recv failed: %s\n", strerror(errno));
   }
 }
@@ -508,7 +510,7 @@ int main(int argc, char **argv) {
       case 'V':
         fprintf(stderr, "%s %s\n", progname, version);
         fprintf(stderr, "(C) 2006-2007 Chris Webb <chris@arachsys.com>\n");
-	exit(0);
+        exit(0);
       default:
         usage(argv[0]);
     }

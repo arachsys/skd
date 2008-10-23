@@ -387,6 +387,33 @@ void recvloop(int sock, char **cmdv, int verbose) {
   }
 }
 
+void superviseloop(char **cmdv, int verbose) {
+  int pid, status;
+
+  while (1) {
+    if (verbose)
+      fprintf(stderr, "Started %s\n", cmdv[0]);
+
+    switch (pid = fork()) {
+      case -1:
+        fprintf(stderr, "Fork failed: %s\n", strerror(errno));
+        break;
+      case 0:
+        execvp(cmdv[0], cmdv);
+        fprintf(stderr, "Exec failed: %s\n", strerror(errno));
+        exit(1);
+      default:
+        waitpid(pid, &status, 0);
+        if (verbose && WIFEXITED(status) && WEXITSTATUS(status))
+          fprintf(stderr, "%s exited abnormally with status %d\n",
+                  cmdv[0], WEXITSTATUS(status));
+        else if (verbose && WIFSIGNALED(status))
+          fprintf(stderr, "%s was terminated by signal %d\n",
+                  cmdv[0], WTERMSIG(status));
+    }
+  }
+}
+
 void writepidfile(char *pidfile) {
   FILE *pidstream;
   if (!pidfile)
@@ -424,6 +451,7 @@ Options:\n\
   -L >LOGFILE           redirect stderr to create and write to LOGFILE\n\
   -L >>LOGFILE          redirect stderr to append to LOGFILE\n\
   -P PIDFILE            write pid to PIDFILE (after forking if used with -B)\n\
+  -S                    supervisor mode: restart PROG whenever it exits\n\
   -U                    after binding the socket, drop privileges to those\n\
                           specified by $UID and $GID, and if $ROOT is set,\n\
                           chroot into that directory\n\
@@ -442,7 +470,8 @@ datagrams or spawn another child.\n\
 If none of -i, -l, -u is used, no socket is bound and the given program is\n\
 executed immediately, after any background, logging, pidfile and privilege\n\
 dropping actions have been completed. This allows use of these facilities\n\
-for standalone and non-network services.\n\
+for standalone and non-network services. If the -S option is specified in\n\
+this case, a supervisor process restarts the program whenever it exits.\n\
 ", progname);
   exit(1);
 }
@@ -451,11 +480,11 @@ int main(int argc, char **argv) {
   char *addrspec = NULL, *logspec = NULL, *pidfile = NULL, **cmdv, *trail;
   enum {null, local, inet} namespace = null;
   int background = 0, backlog = 10, maxchildren = 0, nodelay = 0,
-      style = SOCK_STREAM, verbose = 0, logfd, opt, sock;
+      style = SOCK_STREAM, supervise = 0, verbose = 0, logfd, opt, sock;
 
   setlocale(LC_ALL, "");
 
-  while ((opt = getopt(argc, argv, "i:l:x:t:u:dsb:c:nvBL:P:UV")) > 0)
+  while ((opt = getopt(argc, argv, "i:l:x:t:u:dsb:c:nvBL:P:SUV")) > 0)
     switch (opt) {
       case 'i':
         namespace = inet;
@@ -506,6 +535,9 @@ int main(int argc, char **argv) {
         break;
       case 'P':
         pidfile = optarg;
+        break;
+      case 'S':
+        supervise++;
         break;
       case 'U':
         droprootprivs++;
@@ -579,9 +611,13 @@ int main(int argc, char **argv) {
     close(bgfd);
 
   if (namespace == null) {
-    execvp(cmdv[0], cmdv);
-    fprintf(stderr, "Exec %s failed: %s\n", cmdv[0], strerror(errno));
-    return 1;
+    if (supervise)
+      superviseloop(cmdv, verbose);
+    else {
+      execvp(cmdv[0], cmdv);
+      fprintf(stderr, "Exec %s failed: %s\n", cmdv[0], strerror(errno));
+      return 1;
+    }
   }
 
   signal(SIGCHLD, child_handler);

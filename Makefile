@@ -1,4 +1,4 @@
-VERSION = 1.0
+VERSION = 1.1
 
 CC = gcc
 CFLAGS = -g -Os -Wall -DVERSION=\"${VERSION}\"

@@ -479,7 +479,7 @@ this case, a supervisor process restarts the program whenever it exits.\n\
 int main(int argc, char **argv) {
   char *addrspec = NULL, *logspec = NULL, *pidfile = NULL, **cmdv, *trail;
   enum {null, local, inet} namespace = null;
-  int background = 0, backlog = 10, maxchildren = 0, nodelay = 0,
+  int background = 0, backlog = 10, bgpipe[2], maxchildren = 0, nodelay = 0,
       style = SOCK_STREAM, supervise = 0, verbose = 0, logfd, opt, sock;
 
   setlocale(LC_ALL, "");
@@ -555,9 +555,6 @@ int main(int argc, char **argv) {
 
   if (background) {
     char dummy;
-    int bgpipe[2], devnull;
-    if ((devnull = open("/dev/null", O_RDWR)) < 0)
-      error(1, errno, "open /dev/null");
     if (pipe(bgpipe) < 0)
       error(1, errno, "pipe");
     switch (fork()) {
@@ -571,15 +568,6 @@ int main(int argc, char **argv) {
         close(bgpipe[0]);
         exit(0);
     }
-    close(bgpipe[0]);
-    bgfd = bgpipe[1];
-    if (setsid() == -1)
-      error(1, errno, "setsid");
-    if (isatty(STDIN_FILENO) || namespace != null)
-      dup2(devnull, STDIN_FILENO);
-    if (isatty(STDOUT_FILENO) || namespace != null)
-      dup2(devnull, STDOUT_FILENO);
-    close(devnull);
   }
 
   switch (namespace) {
@@ -600,6 +588,21 @@ int main(int argc, char **argv) {
   if (namespace != null && style == SOCK_STREAM) {
     if (listen(sock, backlog) < 0)
       error(1, errno, "listen");
+  }
+
+  if (background) {
+    int devnull;
+    close(bgpipe[0]);
+    bgfd = bgpipe[1];
+    if ((devnull = open("/dev/null", O_RDWR)) < 0)
+      error(1, errno, "open /dev/null");
+    if (setsid() == -1)
+      error(1, errno, "setsid");
+    if (isatty(STDIN_FILENO) || namespace != null)
+      dup2(devnull, STDIN_FILENO);
+    if (isatty(STDOUT_FILENO) || namespace != null)
+      dup2(devnull, STDOUT_FILENO);
+    close(devnull);
   }
 
   if (logfd != STDERR_FILENO) {

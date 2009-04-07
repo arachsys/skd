@@ -1,7 +1,7 @@
 VERSION = 1.0
 
 CC = gcc
-CFLAGS = -Os -Wall -DVERSION=\"${VERSION}\"
+CFLAGS = -g -Os -Wall -DVERSION=\"${VERSION}\"
 LDFLAGS =
 
 PREFIX =

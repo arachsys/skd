@@ -198,8 +198,8 @@ int inetsock(char *portname, int style) {
     if (*portname == ':')
       *portname++ = '\0';
     else
-      error(1, 0, "Port specification must be in form PORT, HOSTNAME:PORT or \
-[IP]:PORT");
+      error(1, 0, "Port specification must be in form PORT, HOSTNAME:PORT or "
+                  "[IP]:PORT");
   } else {
     hostname = strsep(&portname, ":");
     numerichost = 0;
@@ -211,8 +211,8 @@ int inetsock(char *portname, int style) {
   if (hostname && hostname[0] == '\0')
     hostname = NULL;
   if (portname[0] == '\0')
-    error(1, 0, "Port specification must be in form PORT, HOSTNAME:PORT or \
-[IP]:PORT");
+    error(1, 0, "Port specification must be in form PORT, HOSTNAME:PORT or "
+                "[IP]:PORT");
 
   memset(&hints, 0, sizeof(hints));
   hints.ai_flags = AI_PASSIVE | (numerichost ? AI_NUMERICHOST : 0);
@@ -231,8 +231,27 @@ int inetsock(char *portname, int style) {
       static const int one = 1;
       if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0)
         error(1, errno, "setsockopt");
-      if (bind(sock, addr->ai_addr, addr->ai_addrlen) == 0)
+      if (bind(sock, addr->ai_addr, addr->ai_addrlen) == 0) {
+        switch (addr->ai_family) {
+          case AF_INET:
+            if (ntohs(((struct sockaddr_in *) addr->ai_addr)->sin_port) == 0) {
+              struct sockaddr_in myaddr;
+              socklen_t addrsize = sizeof(myaddr);
+              if (getsockname(sock, (struct sockaddr *) &myaddr, &addrsize) == 0)
+                printf("%d\n", ntohs(myaddr.sin_port));
+            }
+            break;
+          case AF_INET6:
+            if (ntohs(((struct sockaddr_in6 *) addr->ai_addr)->sin6_port) == 0) {
+              struct sockaddr_in6 myaddr;
+              socklen_t addrsize = sizeof(myaddr);
+              if (getsockname(sock, (struct sockaddr *) &myaddr, &addrsize) == 0)
+                printf("%d\n", ntohs(myaddr.sin6_port));
+            }
+            break;
+        }
         break;
+      }
       close(sock);
       sock = -1;
     }
@@ -269,11 +288,11 @@ int localsock(char *path, int style) {
 
 void acceptloop(int sock, char **cmdv, int verbose, int maxchildren,
                 int nodelay) {
-  char froms[64];
+  char host[64], port[6];
   int nc;
   sigset_t mask_child, mask_restore;
-  socklen_t fromaddrsize;
-  struct sockaddr_storage fromaddr;
+  struct sockaddr_storage fromaddr, myaddr;
+  socklen_t addrsize;
 
   sigemptyset(&mask_child);
   sigaddset(&mask_child, SIGCHLD);
@@ -282,24 +301,92 @@ void acceptloop(int sock, char **cmdv, int verbose, int maxchildren,
     while (maxchildren > 0 && children >= maxchildren)
       sigsuspend(&mask_restore);
     sigprocmask(SIG_SETMASK, &mask_restore, NULL);
-    fromaddrsize = sizeof(fromaddr);
-    nc = accept(sock, (struct sockaddr *) &fromaddr, &fromaddrsize);
+    addrsize = sizeof(fromaddr);
+    nc = accept(sock, (struct sockaddr *) &fromaddr, &addrsize);
     if (nc >= 0) {
-      if (verbose)
-        switch (((struct sockaddr *) &fromaddr)->sa_family) {
-          case AF_INET:
-            inet_ntop(AF_INET, &((struct sockaddr_in *) &fromaddr)->sin_addr,
-                      froms, sizeof(froms));
-            fprintf(stderr, "Accepted connection from [%s]\n", froms);
-            break;
-          case AF_INET6:
-            inet_ntop(AF_INET6, &((struct sockaddr_in6 *) &fromaddr)->sin6_addr,
-                      froms, sizeof(froms));
-            fprintf(stderr, "Accepted connection from [%s]\n", froms);
-            break;
-          default:
+      switch (((struct sockaddr *) &fromaddr)->sa_family) {
+        case AF_INET:
+          setenv("PROTO", "TCP", 1);
+          addrsize = sizeof(myaddr);
+          if (getsockname(nc, (struct sockaddr *) &myaddr, &addrsize) == 0) {
+            inet_ntop(AF_INET, &((struct sockaddr_in *) &myaddr)->sin_addr,
+                      host, sizeof(host));
+            snprintf(port, sizeof(port), "%d",
+                     ntohs(((struct sockaddr_in *) &myaddr)->sin_port));
+            setenv("TCPLOCALIP", host, 1);
+            setenv("TCPLOCALPORT", port, 1);
+          } else {
+            unsetenv("TCPLOCALIP");
+            unsetenv("TCPLOCALPORT");
+          }
+          addrsize = sizeof(fromaddr);
+          inet_ntop(AF_INET, &((struct sockaddr_in *) &fromaddr)->sin_addr,
+                    host, sizeof(host));
+          snprintf(port, sizeof(port), "%d",
+                   ntohs(((struct sockaddr_in *) &fromaddr)->sin_port));
+          setenv("TCPREMOTEIP", host, 1);
+          setenv("TCPREMOTEPORT", port, 1);
+          if (verbose)
+            fprintf(stderr, "Accepted connection from [%s]:%s\n", host, port);
+          break;
+
+        case AF_INET6:
+          setenv("PROTO", "TCP", 1);
+          addrsize = sizeof(myaddr);
+          if (getsockname(nc, (struct sockaddr *) &myaddr, &addrsize) == 0) {
+            inet_ntop(AF_INET6, &((struct sockaddr_in6 *) &myaddr)->sin6_addr,
+                      host, sizeof(host));
+            snprintf(port, sizeof(port), "%d",
+                     ntohs(((struct sockaddr_in6 *) &myaddr)->sin6_port));
+            setenv("TCPLOCALIP", host, 1);
+            setenv("TCPLOCALPORT", port, 1);
+          } else {
+            unsetenv("TCPLOCALIP");
+            unsetenv("TCPLOCALPORT");
+          }
+          addrsize = sizeof(fromaddr);
+          inet_ntop(AF_INET6, &((struct sockaddr_in6 *) &fromaddr)->sin6_addr,
+                    host, sizeof(host));
+          snprintf(port, sizeof(port), "%d",
+                   ntohs(((struct sockaddr_in6 *) &fromaddr)->sin6_port));
+          setenv("TCPREMOTEIP", host, 1);
+          setenv("TCPREMOTEPORT", port, 1);
+          if (verbose)
+            fprintf(stderr, "Accepted connection from [%s]:%s\n", host, port);
+          break;
+
+        default:
+          setenv("PROTO", "UNIX-STREAM", 1);
+#ifdef SO_PEERCRED
+          struct ucred peer;
+          char uid[11], gid[11], pid[11];
+          socklen_t peersize = sizeof(peer);
+          if (getsockopt(nc, SOL_SOCKET, SO_PEERCRED, &peer, &peersize) == 0) {
+            if (verbose) 
+              fprintf(stderr, "Accepted local connection from pid %d "
+                              "(uid = %d, gid = %d)\n",
+                      peer.pid, peer.uid, peer.gid);
+            snprintf(pid, sizeof(pid), "%d", peer.pid);
+            setenv("PEERPID", pid, 1);
+            snprintf(uid, sizeof(uid), "%d", peer.uid);
+            setenv("PEERUID", uid, 1);
+            snprintf(gid, sizeof(gid), "%d", peer.gid);
+            setenv("PEERGID", gid, 1);
+          } else {
+            unsetenv("PEERPID");
+            unsetenv("PEERUID");
+            unsetenv("PEERGID");
+            if (verbose)
+              fprintf(stderr, "Accepted local connection\n");
+          }
+#else
+          unsetenv("PEERPID");
+          unsetenv("PEERUID");
+          unsetenv("PEERGID");
+          if (verbose)
             fprintf(stderr, "Accepted local connection\n");
-        }
+#endif
+      }
 
       if (nodelay) {
         static const int one = 1;
@@ -324,17 +411,19 @@ void acceptloop(int sock, char **cmdv, int verbose, int maxchildren,
       }
       sigprocmask(SIG_SETMASK, &mask_restore, NULL);
       close(nc);
-    } else
+    } else {
       fprintf(stderr, "Accept failed: %s\n", strerror(errno));
+      sleep(1);
+    }
   }
 }
 
 void recvloop(int sock, char **cmdv, int verbose) {
-  char froms[64];
-  int flags, pid;
+  char host[64];
+  int flags;
   sigset_t mask_child, mask_restore;
-  socklen_t fromaddrsize;
   struct sockaddr_storage fromaddr;
+  socklen_t addrsize;
 
   sigemptyset(&mask_child);
   sigaddset(&mask_child, SIGCHLD);
@@ -343,30 +432,41 @@ void recvloop(int sock, char **cmdv, int verbose) {
     while (children > 0)
       sigsuspend(&mask_restore);
     sigprocmask(SIG_SETMASK, &mask_restore, NULL);
-    fromaddrsize = sizeof(fromaddr);
+    addrsize = sizeof(fromaddr);
     flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
     if (recvfrom(sock, NULL, 0, MSG_PEEK, (struct sockaddr *) &fromaddr,
-                 &fromaddrsize) >= 0) {
-      if (verbose)
-        switch (((struct sockaddr *) &fromaddr)->sa_family) {
-          case AF_INET:
+                 &addrsize) >= 0) {
+
+
+      switch (((struct sockaddr *) &fromaddr)->sa_family) {
+        case AF_INET:
+          setenv("PROTO", "UDP", 1);
+          if (verbose) {
             inet_ntop(AF_INET, &((struct sockaddr_in *) &fromaddr)->sin_addr,
-                      froms, sizeof(froms));
-            fprintf(stderr, "Received initial datagram from [%s]\n", froms);
-            break;
-          case AF_INET6:
+                      host, sizeof(host));
+            fprintf(stderr, "Received initial datagram from [%s]:%d\n", host,
+                    ntohs(((struct sockaddr_in *) &fromaddr)->sin_port));
+          }
+          break;
+        case AF_INET6:
+          setenv("PROTO", "UDP", 1);
+          if (verbose) {
             inet_ntop(AF_INET6,
                       &((struct sockaddr_in6 *) &fromaddr)->sin6_addr,
-                      froms, sizeof(froms));
-            fprintf(stderr, "Received initial datagram from [%s]\n", froms);
-            break;
-          default:
+                      host, sizeof(host));
+            fprintf(stderr, "Received initial datagram from [%s]:%d\n", host,
+                    ntohs(((struct sockaddr_in6 *) &fromaddr)->sin6_port));
+          }
+          break;
+        default:
+          setenv("PROTO", "UNIX-DGRAM", 1);
+          if (verbose)
             fprintf(stderr, "Received initial local datagram\n");
-        }
+      }
 
       sigprocmask(SIG_BLOCK, &mask_child, &mask_restore);
-      switch (pid = fork()) {
+      switch (fork()) {
         case -1:
           fprintf(stderr, "Fork failed: %s\n", strerror(errno));
           break;

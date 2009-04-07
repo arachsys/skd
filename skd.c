@@ -544,7 +544,8 @@ int main(int argc, char **argv) {
         break;
       case 'V':
         fprintf(stderr, "%s %s\n", progname, version);
-        fprintf(stderr, "(C) 2006-2007 Chris Webb <chris@arachsys.com>\n");
+        fprintf(stderr,
+                "Copyright (C) 2006-2009 Chris Webb <chris@arachsys.com>\n");
         exit(0);
       default:
         usage(argv[0]);
